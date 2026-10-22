@@ -1,0 +1,993 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Game pelarian top-down: arahkan pasukan lari di pantai Dunkirk, berlindung dari patroli, pesawat Stuka, tank dan kapal perang, lalu evakuasi lewat kapal.">
+<meta property="og:title" content="DUNKIRK 1940: Evakuasi">
+<meta property="og:description" content="Game pelarian top-down: arahkan pasukan lari di pantai Dunkirk, berlindung dari patroli, pesawat Stuka, tank dan kapal perang, lalu evakuasi lewat kapal.">
+<meta property="og:type" content="website">
+<title>DUNKIRK 1940: Evakuasi</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Stardos+Stencil:wght@700&family=Special+Elite&display=swap">
+<style>
+/* Layout: full-bleed top-down battlefield; HUD pinned to the top corners; the briefing is a paper telegram card centred over the beach. */
+:root{
+  --sand:#c4b189;
+  --sea:#2f4e56;
+  --ink:#1c1912;
+  --paper:#e6d9b8;
+  --flare:#e0522f;
+  --signal:#8cc06b;
+  --panel:rgba(24,21,14,.72);
+  --muted:#b9ad8c;
+  --stencil:"Stardos Stencil","Impact","Arial Narrow",sans-serif;
+  --type:"Special Elite","Courier New",monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{margin:0;background:var(--ink);color:var(--paper);font-family:var(--type);overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+#stage{position:relative;width:100%;height:100%;overflow:hidden;background:var(--ink)}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+.vig{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 55%,rgba(10,8,4,.6) 100%)}
+#stage[data-pal="film"]{--ink:#101c25;--panel:rgba(13,25,35,.76);--muted:#9db1bd}
+#stage[data-pal="film"] .vig{background:radial-gradient(ellipse at center,transparent 48%,rgba(116,144,162,.42) 100%)}
+
+#hud{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:12px max(16px,env(safe-area-inset-right,0px)) 0 max(16px,env(safe-area-inset-left,0px));pointer-events:none}
+.stats{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.stat{background:var(--panel);padding:6px 10px 7px}
+.lbl{display:block;font:700 11px/1.2 var(--stencil);letter-spacing:.16em;color:var(--muted)}
+.big{display:block;font:700 38px/1 var(--stencil);font-variant-numeric:tabular-nums}
+.mid{display:block;font:700 24px/1.1 var(--stencil);font-variant-numeric:tabular-nums}
+.sub{display:block;font-size:11px;color:var(--signal)}
+#lbw{background:var(--panel);padding:7px 10px 8px;min-width:176px;max-width:50%}
+#lb{list-style:none;margin:4px 0 0;padding:0;font-size:13px;line-height:1.55}
+#lb li{display:flex;justify-content:space-between;gap:10px;font-variant-numeric:tabular-nums}
+#lb li.me{color:var(--signal)}
+#lb .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+
+#toast{position:absolute;top:112px;left:50%;transform:translateX(-50%);padding:8px 14px;background:var(--ink);border:2px solid var(--paper);font:700 17px/1.25 var(--stencil);letter-spacing:.06em;opacity:0;transition:opacity .2s;pointer-events:none;max-width:calc(100% - 32px);text-align:center}
+#toast.show{opacity:1}
+#toast.warn{border-color:var(--flare);color:#ffb39e}
+#toast.good{border-color:var(--signal);color:var(--signal)}
+#hint{position:absolute;left:0;right:0;bottom:18px;text-align:center;font-size:14px;color:var(--paper);text-shadow:0 1px 3px #000;pointer-events:none;transition:opacity .6s;padding:0 16px}
+#hint.off{opacity:0}
+.ctl{position:absolute;right:max(16px,env(safe-area-inset-right,0px));bottom:14px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.ctl button{background:var(--panel);color:var(--paper);border:1px solid rgba(230,217,184,.35);font:700 12px var(--stencil);letter-spacing:.12em;padding:7px 10px;cursor:pointer}
+.ctl button:focus-visible,.btn:focus-visible{outline:3px solid var(--signal);outline-offset:2px}
+
+.ov{position:absolute;inset:0;display:flex;padding:16px max(16px,env(safe-area-inset-right,0px)) 16px max(16px,env(safe-area-inset-left,0px));background:rgba(14,12,8,.62);overflow:auto}
+.card{margin:auto;width:min(500px,100%);background:var(--paper);color:var(--ink);border:2px solid #000;box-shadow:8px 8px 0 rgba(0,0,0,.55)}
+.strip{margin:0;background:var(--ink);color:var(--paper);font:700 12px/1.3 var(--stencil);letter-spacing:.18em;padding:7px 14px}
+.cbody{padding:14px 18px 18px}
+h1{margin:0 0 10px;font:700 clamp(46px,13vw,80px)/.92 var(--stencil);letter-spacing:.03em;text-wrap:balance}
+h1 small{display:block;margin-top:8px;font-size:clamp(15px,4.4vw,24px);letter-spacing:.24em;color:var(--flare)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.row .btn{flex:1 1 140px;width:auto;font-size:16px;padding:10px 12px;background:transparent;color:var(--ink);border:2px solid var(--ink)}
+.row .btn:hover{background:var(--ink);color:var(--paper)}
+#shmsg{margin:8px 0 0;min-height:1.2em}
+.card p{margin:0 0 10px;font-size:14px;line-height:1.5}
+.rules{list-style:none;margin:0 0 14px;padding:0;font-size:13.5px;line-height:1.5}
+.rules li{padding-left:22px;position:relative;margin-bottom:6px}
+.rules li::before{content:"\2014";position:absolute;left:0;color:var(--flare)}
+.btn{display:block;width:100%;background:var(--ink);color:var(--paper);border:0;font:700 22px var(--stencil);letter-spacing:.1em;padding:12px 16px;cursor:pointer}
+.btn:hover{background:var(--flare);color:#fff}
+#go{position:sticky;bottom:0;box-shadow:0 -10px 12px -2px var(--paper)}
+.small{font-size:12px!important;color:#5b5240}
+.res{display:grid;grid-template-columns:1fr auto;gap:4px 14px;margin:0 0 14px;font-size:14px}
+.res dt{color:#5b5240}
+.res dd{margin:0;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+
+@media (max-width:560px){
+  .big{font-size:30px}
+  #lbw{min-width:130px}
+  #lb li:not(.me){display:none}
+  #toast{top:128px}
+}
+@media (prefers-reduced-motion:reduce){#toast,#hint{transition:none}}
+</style>
+
+</head>
+<body>
+<div id="stage" data-pal="film">
+  <canvas id="c" aria-label="Medan pantai Dunkirk"></canvas>
+  <div class="vig"></div>
+
+  <div id="hud">
+    <div class="stats">
+      <div class="stat"><span class="lbl">DISELAMATKAN</span><span class="big" id="saved">0</span><span class="sub" id="savedsub">0 prajurit</span></div>
+      <div class="stat"><span class="lbl">PASUKAN</span><span class="mid" id="squad">8</span></div>
+      <div class="stat"><span class="lbl">WAKTU</span><span class="mid" id="clock">00:00</span></div>
+    </div>
+    <div id="lbw"><span class="lbl">PERINGKAT KOMANDAN</span><ol id="lb"></ol></div>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="hint">Ketuk atau geser di peta, pasukanmu lari ke titik itu.</div>
+  <div class="ctl"><button id="pal" type="button">WARNA: BIRU FILM</button><button id="mute" type="button">SUARA: ON</button></div>
+
+  <div class="ov" id="ov">
+    <div class="card" id="menu">
+      <p class="strip">ADMIRALTY &middot; TELEGRAM MENDESAK &middot; 26 MEI 1940</p>
+      <div class="cbody">
+        <h1>DUNKIRK<small>1940 : EVAKUASI</small></h1>
+        <p>Pasukan terkepung di pantai, laut di belakang, musuh di depan. Operasi Dynamo dimulai. Kamu komandan lapangan: kamu tidak menembak, kamu hanya menunjuk arah lari.</p>
+        <ul class="rules">
+          <li>Ketuk atau geser di peta. Seluruh pasukan lari ke titik itu (di keyboard: tombol panah atau WASD).</li>
+          <li>Hindari kerucut merah patroli, jalur merah Stuka, dan lingkaran merah peluru tank dan kapal perang. Berlindung di balik karung pasir dan bunker: pandangan dan ledakan terhalang. Parit melindungi dari tembakan pesawat. Air dangkal dan parit membuat pasukan melambat.</li>
+          <li>Dekati prajurit yang tercecer untuk merekrut mereka. Bawa pasukan ke lingkaran hijau saat kapal evakuasi tiba. Komandan tetap di pantai.</li>
+          <li>Kapal sipil kecil merapat lebih dekat tapi menaikkan prajurit lebih lambat. Kadang Spitfire kawan lewat dan mengusir Stuka.</li>
+          <li>Tiap prajurit yang naik kapal mewakili 1.000 orang. Operasi aslinya menyelamatkan 338.226 orang dalam sembilan hari.</li>
+        </ul>
+        <button class="btn" id="go" type="button">MULAI EVAKUASI</button>
+        <p class="small" id="best" style="margin:10px 0 0"></p>
+      </div>
+    </div>
+    <div class="card" id="end" hidden>
+      <p class="strip">LAPORAN PERTEMPURAN &middot; PASUKAN HABIS</p>
+      <div class="cbody">
+        <h1>GUGUR DI PANTAI</h1>
+        <dl class="res">
+          <dt>Diselamatkan</dt><dd id="rsaved">0</dd>
+          <dt>Setara prajurit</dt><dd id="rmen">0</dd>
+          <dt>Bertahan</dt><dd id="rtime">00:00</dd>
+          <dt>Peringkat</dt><dd id="rrank">-</dd>
+          <dt>Terbaik</dt><dd id="rbest">0</dd>
+        </dl>
+        <button class="btn" id="again" type="button">COBA LAGI</button>
+        <div class="row">
+          <button class="btn" id="share" type="button">BAGIKAN SKOR</button>
+          <button class="btn" id="dl" type="button">UNDUH KARTU</button>
+        </div>
+        <p class="small" id="shmsg" role="status" aria-live="polite"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+var $=function(id){return document.getElementById(id);};
+var cv=$('c'),ctx=cv.getContext('2d'),stage=$('stage');
+var W=2200,H=1500,SHORE=1640,TAU=Math.PI*2;
+var PR=250,HALF=0.55;
+var clamp=function(v,a,b){return v<a?a:v>b?b:v;};
+var R=function(a,b){return a+Math.random()*(b-a);};
+var angDiff=function(a,b){var d=a-b;while(d>Math.PI)d-=TAU;while(d<-Math.PI)d+=TAU;return d;};
+var turn=function(cur,des,rate){return cur+clamp(angDiff(des,cur),-rate,rate);};
+var vw=300,vh=300,dpr=1,zoom=1,CAMX=500,CAMY=750;
+var state='menu',G=null,last=0,down=false,muted=false,ac=null,toastTm=0;
+var keys={};
+var FONT='700 15px "Stardos Stencil",Impact,sans-serif';
+/* Isi alamat game setelah di-deploy, misalnya 'https://dunkirk.vercel.app'. Kosong = pakai alamat halaman saat ini. */
+var SHARE_URL='';
+var PALS={
+  film:{sand:'#b3b4aa',duneA:'rgba(132,138,136,.18)',duneB:'rgba(214,216,208,.18)',speckA:'rgba(70,80,88,.25)',speckB:'rgba(238,242,240,.3)',wet0:'rgba(52,66,78,0)',wet:'rgba(52,66,78,.62)',sea:['#6f8f9e','#48697b','#1d3342'],foam:'rgba(240,245,247,.75)',wave:'rgba(225,238,244,.13)',grade:'rgba(96,130,156,.12)',man:'#4f5d45',manLead:'#697a52',helm:'#36402f',helmLead:'#cfd3c2',strag:'#a3a08a',stragHelm:'#6d6a54'},
+  sepia:{sand:'#c4b189',duneA:'rgba(150,128,88,.16)',duneB:'rgba(226,210,166,.16)',speckA:'rgba(110,92,60,.25)',speckB:'rgba(240,226,190,.3)',wet0:'rgba(110,92,64,0)',wet:'rgba(86,76,56,.6)',sea:['#5d8084','#3c5e66','#223a43'],foam:'rgba(236,240,232,.7)',wave:'rgba(220,235,235,.11)',grade:null,man:'#6b7a46',manLead:'#7d8f4e',helm:'#4a5632',helmLead:'#d9cf9a',strag:'#b9a36e',stragHelm:'#7f6d3f'}
+};
+var pal=PALS.film;
+
+/* ---------- sound (procedural, starts after first tap) ---------- */
+function sfxInit(){try{if(!ac)ac=new (window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')ac.resume();}catch(e){ac=null;}}
+function noise(dur,vol,fc){
+  if(!ac||muted)return;
+  try{
+    var n=Math.floor(ac.sampleRate*dur),b=ac.createBuffer(1,n,ac.sampleRate),d=b.getChannelData(0);
+    for(var i=0;i<n;i++)d[i]=(Math.random()*2-1)*(1-i/n);
+    var s=ac.createBufferSource();s.buffer=b;
+    var f=ac.createBiquadFilter();f.type='lowpass';f.frequency.value=fc;
+    var g=ac.createGain();g.gain.value=vol;
+    s.connect(f);f.connect(g);g.connect(ac.destination);s.start();
+  }catch(e){}
+}
+function tone(f0,f1,dur,vol,type){
+  if(!ac||muted)return;
+  try{
+    var o=ac.createOscillator(),g=ac.createGain(),t=ac.currentTime;
+    o.type=type||'sine';o.frequency.setValueAtTime(f0,t);o.frequency.exponentialRampToValueAtTime(f1,t+dur);
+    g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g);g.connect(ac.destination);o.start();o.stop(t+dur);
+  }catch(e){}
+}
+var sfx={
+  boom:function(){noise(.7,.45,520);},
+  shot:function(){noise(.07,.16,3200);},
+  dive:function(){tone(420,1300,2.2,.045,'sawtooth');},
+  ping:function(){tone(880,1320,.16,.07,'sine');},
+  join:function(){tone(520,740,.1,.05,'triangle');}
+};
+
+/* ---------- static world ---------- */
+var WRECKS=[{x:380,y:300,w:74,h:34,a:.3},{x:820,y:1150,w:90,h:36,a:-.4},{x:1180,y:420,w:70,h:32,a:1.1},{x:1450,y:980,w:84,h:36,a:.2},{x:640,y:760,w:60,h:28,a:-1.2},{x:1020,y:760,w:80,h:34,a:.7},{x:300,y:1260,w:76,h:34,a:.1},{x:1500,y:240,w:70,h:30,a:-.6}];
+var bg=document.createElement('canvas');bg.width=W;bg.height=H;
+function buildBg(){
+  var g=bg.getContext('2d'),i;
+  g.fillStyle=pal.sand;g.fillRect(0,0,W,H);
+  for(i=0;i<90;i++){
+    g.fillStyle=Math.random()<.5?pal.duneA:pal.duneB;
+    g.beginPath();g.ellipse(R(0,SHORE),R(0,H),R(60,220),R(30,110),R(0,3),0,TAU);g.fill();
+  }
+  for(i=0;i<7000;i++){
+    g.fillStyle=Math.random()<.5?pal.speckA:pal.speckB;
+    g.fillRect(R(0,SHORE),R(0,H),R(1,2.4),R(1,2.4));
+  }
+  var wg=g.createLinearGradient(SHORE-150,0,SHORE,0);
+  wg.addColorStop(0,pal.wet0);wg.addColorStop(1,pal.wet);
+  g.fillStyle=wg;g.fillRect(SHORE-150,0,150,H);
+  var sg=g.createLinearGradient(SHORE,0,W,0);
+  sg.addColorStop(0,pal.sea[0]);sg.addColorStop(.25,pal.sea[1]);sg.addColorStop(1,pal.sea[2]);
+  g.fillStyle=sg;g.fillRect(SHORE,0,W-SHORE,H);
+  g.strokeStyle=pal.foam;g.lineWidth=5;g.beginPath();
+  for(var y=0;y<=H;y+=20){var x=SHORE+Math.sin(y*.02)*10+Math.sin(y*.071)*6;if(y)g.lineTo(x,y);else g.moveTo(x,y);}
+  g.stroke();
+  WRECKS.forEach(function(w){
+    g.save();g.translate(w.x,w.y);g.rotate(w.a);
+    g.fillStyle='rgba(30,24,18,.35)';g.beginPath();g.ellipse(0,0,w.w*.85,w.h*1.1,0,0,TAU);g.fill();
+    g.fillStyle='#2a2520';g.fillRect(-w.w/2,-w.h/2,w.w,w.h);
+    g.fillStyle='#463d33';g.fillRect(-w.w/2+6,-w.h/2+5,w.w*.5,w.h-10);
+    g.fillStyle='#1a1612';g.fillRect(w.w*.1,-w.h/2+4,w.w*.35,w.h-8);
+    g.restore();
+  });
+}
+
+/* ---------- game state ---------- */
+function mkMan(x,y){return {x:x,y:y,a:0,ph:Math.random()*6.28,run:false};}
+function rectHit(x1,y1,x2,y2,r){
+  var t0=0,t1=1,dx=x2-x1,dy=y2-y1,p=[-dx,dx,-dy,dy],q=[x1-r.x,r.x+r.w-x1,y1-r.y,r.y+r.h-y1],i,t;
+  for(i=0;i<4;i++){
+    if(p[i]===0){if(q[i]<0)return false;}
+    else{
+      t=q[i]/p[i];
+      if(p[i]<0){if(t>t1)return false;if(t>t0)t0=t;}
+      else{if(t<t0)return false;if(t<t1)t1=t;}
+    }
+  }
+  return true;
+}
+function blocked(x1,y1,x2,y2){for(var i=0;i<G.walls.length;i++)if(rectHit(x1,y1,x2,y2,G.walls[i]))return true;return false;}
+function inWallPt(x,y,pad){
+  for(var i=0;i<G.walls.length;i++){var w=G.walls[i];if(x>w.x-pad&&x<w.x+w.w+pad&&y>w.y-pad&&y<w.y+w.h+pad)return true;}
+  return false;
+}
+function inTrench(x,y){
+  for(var i=0;i<G.trench.length;i++){var t=G.trench[i];if(x>t.x&&x<t.x+t.w&&y>t.y&&y<t.y+t.h)return true;}
+  return false;
+}
+function pushOut(o,pad,kx,ky){
+  for(var i=0;i<G.walls.length;i++){
+    var w=G.walls[i],x=o[kx],y=o[ky];
+    if(x>w.x-pad&&x<w.x+w.w+pad&&y>w.y-pad&&y<w.y+w.h+pad){
+      var dl=x-(w.x-pad),dr=(w.x+w.w+pad)-x,du=y-(w.y-pad),dd=(w.y+w.h+pad)-y,mn=Math.min(dl,dr,du,dd);
+      if(mn===dl)o[kx]=w.x-pad;else if(mn===dr)o[kx]=w.x+w.w+pad;else if(mn===du)o[ky]=w.y-pad;else o[ky]=w.y+w.h+pad;
+    }
+  }
+}
+function placeCover(){
+  var plan=[['bag',10],['bunker',4],['trench',4]],all=[];
+  function free(x,y){
+    var i;
+    if(Math.hypot(x-G.sx,y-G.sy)<280)return false;
+    for(i=0;i<all.length;i++)if(Math.hypot(x-all[i][0],y-all[i][1])<230)return false;
+    for(i=0;i<WRECKS.length;i++)if(Math.hypot(x-WRECKS[i].x,y-WRECKS[i].y)<110)return false;
+    return true;
+  }
+  plan.forEach(function(pl){
+    for(var k=0,n=0;k<pl[1]&&n<300;n++){
+      var x=R(180,SHORE-340),y=R(120,H-120);
+      if(!free(x,y))continue;
+      all.push([x,y]);k++;
+      var hor=Math.random()<.5,L;
+      if(pl[0]==='bag'){L=R(120,190);G.walls.push(hor?{x:x-L/2,y:y-12,w:L,h:24,hp:3}:{x:x-12,y:y-L/2,w:24,h:L,hp:3});}
+      else if(pl[0]==='bunker'){G.walls.push({x:x-48,y:y-36,w:96,h:72,hp:99});}
+      else{G.trench.push(hor?{x:x-80,y:y-28,w:160,h:56}:{x:x-28,y:y-80,w:56,h:160});}
+    }
+  });
+}
+function farFromSquad(min){
+  var x,y,n=0;
+  do{x=R(250,SHORE-200);y=R(120,H-120);n++;}while((Math.hypot(x-G.sx,y-G.sy)<min||inWallPt(x,y,30))&&n<40);
+  return {x:x,y:y};
+}
+function spawnStrag(){var p=farFromSquad(350);G.strag.push({x:p.x,y:p.y,ph:Math.random()*6});}
+function spawnPatrol(){
+  var b=farFromSquad(450),pts=[],k;
+  for(k=0;k<4;k++)pts.push({x:clamp(b.x+R(-260,260),150,SHORE-150),y:clamp(b.y+R(-240,240),100,H-100)});
+  pts.forEach(function(q){var n=0;while(inWallPt(q.x,q.y,36)&&n++<12){q.x=clamp(q.x+R(-120,120),150,SHORE-150);q.y=clamp(q.y+R(-120,120),100,H-100);}});
+  var p={x:pts[0].x,y:pts[0].y,pts:pts,wi:1,ang:0,alert:0,fire:0,seen:false};
+  p.ang=Math.atan2(pts[1].y-p.y,pts[1].x-p.x);
+  G.pat.push(p);
+}
+function spawnTank(){
+  var e=Math.floor(R(0,3)),x,y;
+  if(e===0){x=-60;y=R(200,H-200);}else if(e===1){x=R(200,SHORE-300);y=-60;}else{x=R(200,SHORE-300);y=H+60;}
+  G.tanks.push({x:x,y:y,ang:e===0?0:(e===1?Math.PI/2:-Math.PI/2),cd:R(2.5,4),flash:0});
+  toast('TANK MUSUH MENDEKAT','warn');
+}
+function spawnLane(){
+  var h=Math.random()<.5,c=(h?G.sy:G.sx)+R(-70,70),dir=Math.random()<.5?1:-1,len=h?W:H;
+  c=clamp(c,60,(h?H:W)-60);
+  G.lanes.push({h:h,c:c,dir:dir,len:len,p:dir>0?-150:len+150,warn:2.3,go:false});
+  toast('STUKA MENYERANG! KELUAR DARI JALUR MERAH','warn');sfx.dive();
+}
+function spawnSpit(){
+  var n=G.lanes.length;
+  G.spits.push({x:-150,y:clamp(G.sy+R(-160,160),80,H-80),f:0});
+  G.lanes.forEach(function(ln){
+    if(ln.go){
+      var px=ln.h?ln.p:ln.c,py=ln.h?ln.c:ln.p;
+      burst(px,py,18,'#2a2a2a',200,1,8,2);burst(px,py,8,'#f1b24a',260,.4,4,0);
+    }
+  });
+  G.lanes=[];
+  G.nextLane=Math.max(G.nextLane,G.t+16);
+  toast(n?'SPITFIRE MENGUSIR STUKA!':'SPITFIRE DI ATAS PANTAI: UDARA AMAN SEBENTAR','good');
+  tone(220,330,1.4,.05,'sawtooth');
+}
+function spawnBoat(civil){
+  var y=0,n=0,ok;
+  do{y=R(250,H-250);ok=G.boats.every(function(b){return Math.abs(b.y-y)>380;});n++;}while(!ok&&n<20);
+  G.boats.push({y:y,life:civil?20:30,max:civil?20:30,bt:0,civil:!!civil,zx:civil?SHORE-45:SHORE-70,zr:civil?75:100});
+  toast(civil?'KAPAL SIPIL KECIL MERAPAT! LAMBAT TAPI DEKAT':'KAPAL EVAKUASI TIBA! LARI KE LINGKARAN HIJAU','good');sfx.ping();
+}
+function newGame(){
+  G={t:0,sx:500,sy:H/2,tx:500,ty:H/2,men:[],strag:[],pat:[],tanks:[],boats:[],lanes:[],shells:[],tracers:[],parts:[],craters:[],fallen:[],floats:[],ships:[],walls:[],trench:[],spits:[],
+     saved:0,killed:0,shake:0,camx:500,camy:H/2,reach:0,
+     nextLane:14,nextTank:22,nextBoat:7,nextStrag:5,nextPatrol:60,smoke:0,hudT:0,bots:[],nextSpit:R(48,70),nextCivil:24,tickT:1};
+  var i;
+  placeCover();
+  for(i=0;i<8;i++)G.men.push(mkMan(G.sx+R(-20,20),G.sy+R(-20,20)));
+  for(i=0;i<10;i++)spawnStrag();
+  for(i=0;i<5;i++)spawnPatrol();
+  G.ships.push({x:R(1950,2050),y:H*.3,cd:R(6,9),flash:0},{x:R(1950,2050),y:H*.72,cd:R(8,11),flash:0});
+  ['Lt. Harrow','Sgt. Moreau','Cpl. Okafor','Maj. Wells','Pvt. Ellis'].forEach(function(n,k){
+    G.bots.push({name:n,saved:Math.floor(R(0,3)),next:R(4,12)+k});
+  });
+  G.camx=G.sx;G.camy=G.sy;
+}
+
+/* ---------- effects ---------- */
+function burst(x,y,n,col,spd,life,size,grow){
+  for(var i=0;i<n&&G.parts.length<520;i++){
+    var a=R(0,TAU),s=R(.3,1)*spd;
+    G.parts.push({x:x,y:y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:life*R(.6,1),max:life,size:size,grow:grow||0,c:col});
+  }
+}
+function toast(msg,kind){
+  var t=$('toast');t.textContent=msg;t.className='show '+(kind||'');
+  clearTimeout(toastTm);toastTm=setTimeout(function(){t.className='';},2800);
+}
+function manDies(m){
+  G.fallen.push({x:m.x,y:m.y,a:R(0,TAU)});if(G.fallen.length>260)G.fallen.shift();
+  G.killed++;burst(m.x,m.y,5,'#6b2a20',70,.5,3,1);
+}
+function killWhere(fn){
+  G.men=G.men.filter(function(m){if(fn(m)){manDies(m);return false;}return true;});
+}
+function explode(s){
+  s.boom=true;s.bt=0;
+  killWhere(function(m){var dd=Math.hypot(m.x-s.x,m.y-s.y);return dd<s.r*(inTrench(m.x,m.y)?.45:1)&&!blocked(s.x,s.y,m.x,m.y);});
+  G.walls=G.walls.filter(function(w){
+    if(w.hp>50)return true;
+    var cx=w.x+w.w/2,cy=w.y+w.h/2;
+    if(Math.hypot(cx-s.x,cy-s.y)<s.r+Math.max(w.w,w.h)/2){
+      w.hp--;burst(cx,cy,7,'#b9a36e',130,.6,4,1);
+      if(w.hp<=0)return false;
+    }
+    return true;
+  });
+  G.craters.push({x:s.x,y:s.y,r:s.r*.5});if(G.craters.length>90)G.craters.shift();
+  burst(s.x,s.y,22,'#3a3128',220,.9,7,2);
+  burst(s.x,s.y,10,'#f1b24a',300,.35,4,0);
+  G.shake=Math.max(G.shake,Math.max(0,14-Math.hypot(s.x-G.sx,s.y-G.sy)/40));
+  sfx.boom();
+}
+
+/* ---------- update ---------- */
+function updateFx(dt){
+  var i,p;
+  for(i=G.parts.length-1;i>=0;i--){
+    p=G.parts[i];p.life-=dt;
+    if(p.life<=0){G.parts.splice(i,1);continue;}
+    p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=.96;p.vy*=.96;
+  }
+  for(i=G.tracers.length-1;i>=0;i--){G.tracers[i].t-=dt;if(G.tracers[i].t<=0)G.tracers.splice(i,1);}
+  for(i=G.floats.length-1;i>=0;i--){G.floats[i].t-=dt;G.floats[i].y-=26*dt;if(G.floats[i].t<=0)G.floats.splice(i,1);}
+  G.shake=Math.max(0,G.shake-dt*24);
+  G.smoke-=dt;
+  if(G.smoke<=0){
+    G.smoke=.14;
+    WRECKS.forEach(function(w){
+      if(Math.abs(w.x-CAMX)<vw/zoom&&Math.abs(w.y-CAMY)<vh/zoom&&G.parts.length<420){
+        G.parts.push({x:w.x+R(-8,8),y:w.y+R(-8,8),vx:R(10,30),vy:R(-34,-16),life:4,max:4,size:12,grow:3.2,c:'rgba(40,36,32,.38)',soft:1});
+      }
+    });
+  }
+}
+function update(dt){
+  var i,j,m,d;
+  G.t+=dt;
+  /* keyboard steering */
+  var kx=0,ky=0;
+  if(keys.ArrowLeft||keys.a)kx--;if(keys.ArrowRight||keys.d)kx++;
+  if(keys.ArrowUp||keys.w)ky--;if(keys.ArrowDown||keys.s)ky++;
+  if(kx||ky){var kn=Math.hypot(kx,ky);G.tx=clamp(G.sx+kx/kn*400,20,SHORE+25);G.ty=clamp(G.sy+ky/kn*400,20,H-20);}
+  /* squad leader point */
+  var dx=G.tx-G.sx,dy=G.ty-G.sy;d=Math.hypot(dx,dy);
+  if(d>3){
+    var slow=(G.sx>SHORE-30||inTrench(G.sx,G.sy))?.68:1;
+    var sp=Math.min(d,135*slow*dt);G.sx+=dx/d*sp;G.sy+=dy/d*sp;G.reach=1;
+    if(G.sx>SHORE-30&&G.parts.length<500)burst(G.sx+R(-14,14),G.sy+R(-14,14),1,'rgba(240,248,250,.6)',30,.5,3,1.4);
+  }
+  else G.reach=Math.max(0,G.reach-dt*2);
+  G.sx=clamp(G.sx,20,SHORE+40);G.sy=clamp(G.sy,20,H-20);
+  pushOut(G,12,'sx','sy');
+  /* men follow in a sunflower formation */
+  for(i=0;i<G.men.length;i++){
+    m=G.men[i];
+    var r=10*Math.sqrt(i),a=i*2.399;
+    var ex=G.sx+Math.cos(a)*r-m.x,ey=G.sy+Math.sin(a)*r-m.y,k=Math.min(1,dt*5);
+    var spd=Math.hypot(ex,ey)*k/Math.max(dt,.001);
+    m.x+=ex*k;m.y+=ey*k;pushOut(m,5,'x','y');
+    m.run=spd>22;
+    if(m.run)m.a=Math.atan2(ey,ex);
+    m.ph+=dt*(m.run?14:2);
+  }
+  /* stragglers join */
+  var joinR=40+8*Math.sqrt(G.men.length);
+  for(i=G.strag.length-1;i>=0;i--){
+    var s=G.strag[i];s.ph+=dt*3;
+    if(G.men.length<50&&Math.hypot(s.x-G.sx,s.y-G.sy)<joinR){
+      G.men.push(mkMan(s.x,s.y));G.strag.splice(i,1);sfx.join();
+      G.floats.push({x:s.x,y:s.y-10,t:1,txt:'+1 REKRUT',c:'#e6d9b8'});
+    }
+  }
+  G.nextStrag-=dt;
+  if(G.nextStrag<=0){G.nextStrag=5;if(G.strag.length<13)spawnStrag();}
+  /* patrols */
+  G.pat.forEach(function(p){
+    var tgt=null,best=1e9;
+    G.men.forEach(function(mm){
+      var ddx=mm.x-p.x,ddy=mm.y-p.y,dd=Math.hypot(ddx,ddy);
+      if(dd<PR&&dd<best&&(dd<60||Math.abs(angDiff(Math.atan2(ddy,ddx),p.ang))<HALF)&&!blocked(p.x,p.y,mm.x,mm.y)){best=dd;tgt=mm;}
+    });
+    if(tgt){
+      p.alert=Math.min(1.2,p.alert+dt);
+      p.ang=turn(p.ang,Math.atan2(tgt.y-p.y,tgt.x-p.x),2.6*dt);
+      p.fire-=dt;
+      if(p.alert>.45&&p.fire<=0){
+        p.fire=.4;
+        G.tracers.push({x1:p.x,y1:p.y,x2:tgt.x,y2:tgt.y,t:.1});
+        killWhere(function(mm){return mm===tgt;});
+        sfx.shot();
+      }
+    }else{
+      p.alert=Math.max(0,p.alert-dt*.8);
+      var w=p.pts[p.wi],wx=w.x-p.x,wy=w.y-p.y;
+      if(Math.hypot(wx,wy)<14)p.wi=(p.wi+1)%p.pts.length;
+      else{p.ang=turn(p.ang,Math.atan2(wy,wx),2.4*dt);p.x+=Math.cos(p.ang)*48*dt;p.y+=Math.sin(p.ang)*48*dt;}
+    }
+  });
+  /* tanks */
+  G.tanks.forEach(function(t){
+    var tx=G.sx-t.x,ty=G.sy-t.y,td=Math.hypot(tx,ty);
+    t.ang=turn(t.ang,Math.atan2(ty,tx),1.2*dt);
+    if(td>240){t.x+=Math.cos(t.ang)*54*dt;t.y+=Math.sin(t.ang)*54*dt;}
+    t.cd-=dt;t.flash=Math.max(0,t.flash-dt);
+    if(td<600&&t.cd<=0){
+      t.cd=4.6-Math.min(1.6,G.t/110);t.flash=.15;
+      G.shells.push({x:G.sx+R(-24,24),y:G.sy+R(-24,24),r:62,delay:1.15,t:0,boom:false,bt:0});
+    }
+  });
+  /* enemy warships */
+  G.ships.forEach(function(sh){
+    sh.cd-=dt;sh.flash=Math.max(0,sh.flash-dt);
+    if(sh.cd<=0){
+      sh.cd=Math.max(3.4,7.5-G.t/40)+R(0,2);sh.flash=.2;
+      var cx=G.sx,cy=G.sy;
+      for(var k=0;k<3;k++)G.shells.push({x:clamp(cx+R(-170,170),20,SHORE+60),y:clamp(cy+R(-170,170),20,H-20),r:58,delay:1.5+k*.25,t:0,boom:false,bt:0});
+    }
+  });
+  /* shells */
+  for(i=G.shells.length-1;i>=0;i--){
+    var sl=G.shells[i];
+    if(!sl.boom){sl.t+=dt;if(sl.t>=sl.delay)explode(sl);}
+    else{sl.bt+=dt;if(sl.bt>.45)G.shells.splice(i,1);}
+  }
+  /* Stuka lanes */
+  for(i=G.lanes.length-1;i>=0;i--){
+    var ln=G.lanes[i];
+    if(!ln.go){ln.warn-=dt;if(ln.warn<=0)ln.go=true;continue;}
+    ln.p+=ln.dir*1100*dt;
+    var px=ln.h?ln.p:ln.c,py=ln.h?ln.c:ln.p;
+    killWhere(function(mm){return Math.hypot(mm.x-px,mm.y-py)<48&&!inTrench(mm.x,mm.y);});
+    burst(px+(ln.h?ln.dir*34:R(-18,18)),py+(ln.h?R(-18,18):ln.dir*34),1,'#e2d3a4',70,.45,3,1);
+    if(ln.dir>0?ln.p>ln.len+150:ln.p<-150)G.lanes.splice(i,1);
+  }
+  /* rescue boats */
+  for(i=G.boats.length-1;i>=0;i--){
+    var b=G.boats[i];b.life-=dt;b.bt+=dt;
+    var zx=b.zx,inside=G.men.filter(function(mm){return Math.hypot(mm.x-zx,mm.y-b.y)<b.zr;});
+    if(inside.length&&G.men.length>1&&b.bt>=(b.civil?.5:.28)){
+      b.bt=0;
+      inside.sort(function(p,q){return Math.hypot(p.x-zx,p.y-b.y)-Math.hypot(q.x-zx,q.y-b.y);});
+      var boarder=inside[0];
+      G.men.splice(G.men.indexOf(boarder),1);
+      G.saved++;sfx.ping();
+      G.floats.push({x:boarder.x,y:boarder.y,t:1.1,txt:'+1.000',c:'#8cc06b'});
+    }
+    if(b.life<=0){G.boats.splice(i,1);toast('KAPAL BERANGKAT','');}
+  }
+  /* spawning and difficulty */
+  if(G.t>=G.nextLane){G.nextLane=G.t+Math.max(6,13-G.t/25)+R(0,3);spawnLane();}
+  if(G.t>=G.nextTank){G.nextTank=G.t+Math.max(18,40-G.t/8);if(G.tanks.length<Math.min(4,1+Math.floor(G.t/55)))spawnTank();}
+  if(G.t>=G.nextBoat&&G.boats.filter(function(b){return !b.civil;}).length<2){G.nextBoat=G.t+R(10,16);spawnBoat(false);}
+  if(G.t>=G.nextCivil){
+    G.nextCivil=G.t+R(28,42);
+    if(!G.boats.some(function(b){return b.civil;})&&G.boats.length<3)spawnBoat(true);
+  }
+  if(G.t>=G.nextPatrol){G.nextPatrol=G.t+60;if(G.pat.length<8)spawnPatrol();}
+  /* rival commanders */
+  G.bots.forEach(function(bt){
+    bt.next-=dt;
+    if(bt.next<=0){
+      bt.next=R(7,15);bt.saved+=Math.random()<.3?2:1;
+      if(Math.random()<.07)bt.saved=Math.floor(bt.saved*.25);
+    }
+  });
+  /* friendly Spitfire */
+  G.nextSpit-=dt;
+  if(G.nextSpit<=0){G.nextSpit=R(50,75);spawnSpit();}
+  for(i=G.spits.length-1;i>=0;i--){
+    var sf=G.spits[i];
+    sf.x+=700*dt;sf.f-=dt;
+    if(sf.f<=0){sf.f=.09;G.tracers.push({x1:sf.x+30,y1:sf.y,x2:sf.x+300,y2:sf.y+R(-8,8),t:.08});}
+    if(sf.x>W+150)G.spits.splice(i,1);
+  }
+  /* ticking clock: faster when danger is close */
+  var dg=0;
+  G.lanes.forEach(function(l){if(!l.go)dg+=.3;});
+  G.shells.forEach(function(s){if(!s.boom&&Math.hypot(s.x-G.sx,s.y-G.sy)<260)dg+=.18;});
+  G.pat.forEach(function(p){dg+=p.alert*.35;});
+  dg=Math.min(1,dg);
+  G.tickT-=dt;
+  if(G.tickT<=0){G.tickT=1.1-.82*dg;tone(1100,900,.03,.035,'square');}
+  updateFx(dt);
+  G.camx+=(G.sx-G.camx)*Math.min(1,dt*4);G.camy+=(G.sy-G.camy)*Math.min(1,dt*4);
+  if(G.men.length===0)gameOver();
+}
+
+/* ---------- HUD ---------- */
+function setText(el,v){if(el._v!==v){el._v=v;el.textContent=v;}}
+function fmtTime(s){s=Math.floor(s);var m=Math.floor(s/60),r=s%60;return (m<10?'0':'')+m+':'+(r<10?'0':'')+r;}
+function board(){
+  var rows=G.bots.map(function(b){return {n:b.name,s:b.saved,me:false};});
+  rows.push({n:'KAMU',s:G.saved,me:true});
+  rows.sort(function(a,b){return b.s-a.s||(a.me?-1:1);});
+  return rows;
+}
+function hud(){
+  setText($('saved'),String(G.saved));
+  setText($('savedsub'),(G.saved*1000).toLocaleString('id-ID')+' prajurit');
+  setText($('squad'),String(G.men.length));
+  setText($('clock'),fmtTime(G.t));
+  var rows=board(),ol=$('lb'),key=rows.map(function(r){return r.n+r.s;}).join('|');
+  if(ol._k!==key){
+    ol._k=key;ol.textContent='';
+    rows.forEach(function(r,i){
+      var li=document.createElement('li');if(r.me)li.className='me';
+      var a=document.createElement('span');a.className='nm';a.textContent=(i+1)+'. '+r.n;
+      var b=document.createElement('span');b.textContent=String(r.s);
+      li.appendChild(a);li.appendChild(b);ol.appendChild(li);
+    });
+  }
+}
+
+/* ---------- drawing ---------- */
+function drawMan(x,y,a,body,helm,run,ph){
+  ctx.save();ctx.translate(x,y);ctx.rotate(a);
+  ctx.fillStyle='rgba(0,0,0,.22)';ctx.beginPath();ctx.ellipse(1,2,6.5,4.5,0,0,TAU);ctx.fill();
+  var sw=run?Math.sin(ph)*2.2:0;
+  ctx.strokeStyle='#26241b';ctx.lineWidth=1.8;ctx.beginPath();ctx.moveTo(2,3.2+sw*.3);ctx.lineTo(12,3.2+sw*.3);ctx.stroke();
+  ctx.fillStyle=body;ctx.beginPath();ctx.ellipse(0,sw*.4,5.4,4.2,0,0,TAU);ctx.fill();
+  ctx.fillStyle=helm;ctx.beginPath();ctx.arc(1,0,3.3,0,TAU);ctx.fill();
+  ctx.restore();
+}
+function drawPlane(x,y,ang,shadow,friend){
+  ctx.save();ctx.translate(x,y);ctx.rotate(ang);ctx.scale(1.25,1.25);
+  ctx.fillStyle=shadow?'rgba(0,0,0,.24)':(friend?'#5f7a5a':'#3b424a');
+  ctx.beginPath();ctx.ellipse(0,0,34,6.5,0,0,TAU);ctx.fill();
+  ctx.beginPath();ctx.moveTo(8,0);ctx.lineTo(-4,-44);ctx.lineTo(-17,-44);ctx.lineTo(-12,-6);ctx.lineTo(-12,6);ctx.lineTo(-17,44);ctx.lineTo(-4,44);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(-28,0);ctx.lineTo(-36,-14);ctx.lineTo(-41,-14);ctx.lineTo(-39,0);ctx.lineTo(-41,14);ctx.lineTo(-36,14);ctx.closePath();ctx.fill();
+  if(!shadow){
+    ctx.fillStyle=friend?'#9aa89a':'#d3b43c';ctx.beginPath();ctx.ellipse(26,0,8,5,0,0,TAU);ctx.fill();
+    if(friend){
+      [-28,28].forEach(function(wy){
+        ctx.fillStyle='#2a4fa0';ctx.beginPath();ctx.arc(-10,wy,5.5,0,TAU);ctx.fill();
+        ctx.fillStyle='#d8d8d0';ctx.beginPath();ctx.arc(-10,wy,3.6,0,TAU);ctx.fill();
+        ctx.fillStyle='#c43a2f';ctx.beginPath();ctx.arc(-10,wy,1.8,0,TAU);ctx.fill();
+      });
+    }
+    ctx.fillStyle='#8a929c';ctx.beginPath();ctx.ellipse(8,0,8,3.6,0,0,TAU);ctx.fill();
+    ctx.strokeStyle=friend?'rgba(0,0,0,0)':'rgba(240,240,240,.7)';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(-8,-30);ctx.lineTo(-8,-20);ctx.moveTo(-13,-25);ctx.lineTo(-3,-25);ctx.moveTo(-8,30);ctx.lineTo(-8,20);ctx.moveTo(-13,25);ctx.lineTo(-3,25);ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawTank(t){
+  ctx.save();ctx.translate(t.x,t.y);ctx.rotate(t.ang);
+  ctx.fillStyle='rgba(0,0,0,.25)';ctx.fillRect(-24,-12,52,32);
+  ctx.fillStyle='#2e3236';ctx.fillRect(-26,-20,52,9);ctx.fillRect(-26,11,52,9);
+  ctx.fillStyle='#596168';ctx.fillRect(-24,-13,48,26);
+  ctx.fillStyle='#6a737a';ctx.beginPath();ctx.arc(-2,0,10,0,TAU);ctx.fill();
+  ctx.strokeStyle='#2e3236';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(4,0);ctx.lineTo(34,0);ctx.stroke();
+  if(t.flash>0){ctx.fillStyle='rgba(255,210,110,.9)';ctx.beginPath();ctx.arc(38,0,9,0,TAU);ctx.fill();}
+  ctx.restore();
+}
+function drawShip(x,y,flash,rescue,civil){
+  ctx.save();ctx.translate(x,y);if(civil)ctx.scale(.7,.7);
+  ctx.fillStyle='rgba(0,0,0,.22)';
+  ctx.beginPath();ctx.moveTo(-84,8);ctx.lineTo(-56,-8);ctx.lineTo(80,-8);ctx.lineTo(90,2);ctx.lineTo(80,22);ctx.lineTo(-56,22);ctx.closePath();ctx.fill();
+  if(rescue){
+    ctx.fillStyle=civil?'#e0dccb':'#b9b6a6';
+    ctx.beginPath();ctx.moveTo(-48,0);ctx.lineTo(-30,-14);ctx.lineTo(34,-14);ctx.lineTo(44,0);ctx.lineTo(34,14);ctx.lineTo(-30,14);ctx.closePath();ctx.fill();
+    ctx.fillStyle='#8a8776';ctx.fillRect(-18,-8,36,16);ctx.fillStyle='#3d5f73';ctx.fillRect(-24,-3,46,6);
+  }else{
+    ctx.fillStyle='#4a525a';
+    ctx.beginPath();ctx.moveTo(-92,0);ctx.lineTo(-62,-17);ctx.lineTo(70,-17);ctx.lineTo(82,-10);ctx.lineTo(82,10);ctx.lineTo(70,17);ctx.lineTo(-62,17);ctx.closePath();ctx.fill();
+    ctx.fillStyle='#626c75';ctx.fillRect(-50,-10,110,20);
+    ctx.fillStyle='#2f353b';ctx.beginPath();ctx.arc(-40,0,9,0,TAU);ctx.arc(34,0,9,0,TAU);ctx.fill();
+    ctx.strokeStyle='#2f353b';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(-44,0);ctx.lineTo(-78,0);ctx.moveTo(30,0);ctx.lineTo(-4,0);ctx.stroke();
+    ctx.fillStyle='#394047';ctx.fillRect(-6,-7,16,14);
+    if(flash>0){ctx.fillStyle='rgba(255,214,120,.95)';ctx.beginPath();ctx.arc(-84,0,12,0,TAU);ctx.fill();}
+  }
+  ctx.restore();
+}
+function render(ts){
+  ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#1c1912';ctx.fillRect(0,0,cv.width,cv.height);
+  var hw=vw/2/zoom,hh=vh/2/zoom,i,j;
+  CAMX=W<=hw*2?W/2:clamp(G.camx,hw,W-hw);CAMY=H<=hh*2?H/2:clamp(G.camy,hh,H-hh);
+  var shx=G.shake>0?R(-1,1)*G.shake:0,shy=G.shake>0?R(-1,1)*G.shake:0;
+  ctx.setTransform(dpr*zoom,0,0,dpr*zoom,dpr*(vw/2-(CAMX+shx)*zoom),dpr*(vh/2-(CAMY+shy)*zoom));
+  var x0=CAMX-hw-60,x1=CAMX+hw+60,y0=CAMY-hh-60,y1=CAMY+hh+60;
+  var vis=function(x,y,m){return x>x0-m&&x<x1+m&&y>y0-m&&y<y1+m;};
+  ctx.drawImage(bg,0,0);
+  /* waves */
+  if(x1>SHORE){
+    ctx.lineWidth=2;ctx.strokeStyle=pal.wave;
+    for(var wy=Math.max(0,Math.floor(y0/70)*70);wy<Math.min(H,y1);wy+=70){
+      ctx.beginPath();var first=true;
+      for(var wx=Math.max(SHORE+12,x0);wx<Math.min(W,x1);wx+=30){
+        var yy=wy+Math.sin(wx*.03+ts*1.6+wy)*5;
+        if(first){ctx.moveTo(wx,yy);first=false;}else ctx.lineTo(wx,yy);
+      }
+      ctx.stroke();
+    }
+  }
+  /* craters and fallen */
+  G.craters.forEach(function(c){
+    if(!vis(c.x,c.y,c.r))return;
+    ctx.fillStyle='rgba(70,54,36,.5)';ctx.beginPath();ctx.arc(c.x,c.y,c.r,0,TAU);ctx.fill();
+    ctx.fillStyle='rgba(40,30,22,.5)';ctx.beginPath();ctx.arc(c.x,c.y,c.r*.6,0,TAU);ctx.fill();
+  });
+  G.fallen.forEach(function(f){
+    if(!vis(f.x,f.y,10))return;
+    ctx.save();ctx.translate(f.x,f.y);ctx.rotate(f.a);
+    ctx.fillStyle='rgba(70,84,50,.85)';ctx.beginPath();ctx.ellipse(0,0,6,3.4,0,0,TAU);ctx.fill();
+    ctx.fillStyle='rgba(110,30,22,.7)';ctx.beginPath();ctx.arc(1,0,2,0,TAU);ctx.fill();
+    ctx.restore();
+  });
+  /* trenches and cover */
+  G.trench.forEach(function(t){
+    if(!vis(t.x+t.w/2,t.y+t.h/2,120))return;
+    ctx.fillStyle='rgba(46,38,28,.78)';ctx.fillRect(t.x,t.y,t.w,t.h);
+    ctx.strokeStyle='rgba(210,196,158,.4)';ctx.lineWidth=3;ctx.strokeRect(t.x,t.y,t.w,t.h);
+  });
+  G.walls.forEach(function(w){
+    if(!vis(w.x+w.w/2,w.y+w.h/2,120))return;
+    ctx.fillStyle='rgba(0,0,0,.25)';ctx.fillRect(w.x+5,w.y+7,w.w,w.h);
+    if(w.hp>50){
+      ctx.fillStyle='#82868a';ctx.fillRect(w.x,w.y,w.w,w.h);
+      ctx.fillStyle='#5d6266';ctx.fillRect(w.x+6,w.y+6,w.w-12,w.h-12);
+      ctx.fillStyle='#16181a';ctx.fillRect(w.x+10,w.y+w.h/2-4,w.w-20,8);
+    }else{
+      var hor=w.w>=w.h,n=Math.floor((hor?w.w:w.h)/20),q;
+      ctx.fillStyle=w.hp>=3?'#b79f6c':(w.hp===2?'#a58d5e':'#8c774f');
+      ctx.strokeStyle='rgba(60,46,28,.55)';ctx.lineWidth=1.5;
+      for(q=0;q<n;q++){
+        ctx.beginPath();
+        ctx.ellipse(hor?w.x+q*20+10:w.x+w.w/2,hor?w.y+w.h/2:w.y+q*20+10,hor?11:w.w/2,hor?w.h/2:11,0,0,TAU);
+        ctx.fill();ctx.stroke();
+      }
+    }
+  });
+  /* rescue zones and boats */
+  G.boats.forEach(function(b){
+    var zx=b.zx,zr=b.zr;
+    ctx.fillStyle='rgba(140,192,107,.17)';ctx.beginPath();ctx.arc(zx,b.y,zr,0,TAU);ctx.fill();
+    ctx.lineWidth=3;ctx.strokeStyle='rgba(140,192,107,.95)';ctx.setLineDash([14,10]);ctx.lineDashOffset=-ts*30;
+    ctx.beginPath();ctx.arc(zx,b.y,zr,0,TAU);ctx.stroke();ctx.setLineDash([]);
+    ctx.lineWidth=6;ctx.strokeStyle='#e6d9b8';ctx.beginPath();ctx.arc(zx,b.y,zr+12,-Math.PI/2,-Math.PI/2+TAU*(b.life/b.max));ctx.stroke();
+    ctx.fillStyle='#e6d9b8';ctx.font=FONT;ctx.textAlign='center';
+    ctx.fillText((b.civil?'KAPAL SIPIL ':'KAPAL ')+Math.ceil(b.life)+' dtk',zx,b.y-zr-22);
+    drawShip(b.civil?SHORE+60:SHORE+95,b.y+Math.sin(ts*1.5+b.y)*3,0,true,b.civil);
+  });
+  /* Stuka warning lanes */
+  G.lanes.forEach(function(ln){
+    var a=ln.go?.12:.14+.1*Math.sin(ts*14);
+    ctx.fillStyle='rgba(224,82,47,'+a+')';
+    if(ln.h)ctx.fillRect(0,ln.c-48,W,96);else ctx.fillRect(ln.c-48,0,96,H);
+    ctx.strokeStyle='rgba(224,82,47,.8)';ctx.lineWidth=3;ctx.setLineDash([22,16]);ctx.lineDashOffset=-ts*60;
+    ctx.beginPath();
+    if(ln.h){ctx.moveTo(0,ln.c-48);ctx.lineTo(W,ln.c-48);ctx.moveTo(0,ln.c+48);ctx.lineTo(W,ln.c+48);}
+    else{ctx.moveTo(ln.c-48,0);ctx.lineTo(ln.c-48,H);ctx.moveTo(ln.c+48,0);ctx.lineTo(ln.c+48,H);}
+    ctx.stroke();ctx.setLineDash([]);
+    ctx.strokeStyle='rgba(255,140,104,'+(.5+.3*Math.sin(ts*14))+')';ctx.lineWidth=5;
+    var lo=ln.h?x0:y0,hi=ln.h?x1:y1;
+    for(var q=Math.ceil(lo/150)*150;q<hi;q+=150){
+      ctx.beginPath();
+      if(ln.h){ctx.moveTo(q-12*ln.dir,ln.c-14);ctx.lineTo(q+12*ln.dir,ln.c);ctx.lineTo(q-12*ln.dir,ln.c+14);}
+      else{ctx.moveTo(ln.c-14,q-12*ln.dir);ctx.lineTo(ln.c,q+12*ln.dir);ctx.lineTo(ln.c+14,q-12*ln.dir);}
+      ctx.stroke();
+    }
+  });
+  /* shell warnings */
+  G.shells.forEach(function(s){
+    if(s.boom||!vis(s.x,s.y,s.r))return;
+    var k=s.t/s.delay;
+    ctx.fillStyle='rgba(224,82,47,'+(.1+.22*k)+')';ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,TAU);ctx.fill();
+    ctx.strokeStyle='rgba(224,82,47,.9)';ctx.lineWidth=3;ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,TAU);ctx.stroke();
+    ctx.lineWidth=2;ctx.beginPath();ctx.arc(s.x,s.y,s.r*(1-k),0,TAU);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(s.x-10,s.y);ctx.lineTo(s.x+10,s.y);ctx.moveTo(s.x,s.y-10);ctx.lineTo(s.x,s.y+10);ctx.stroke();
+  });
+  /* target marker */
+  if(state==='play'){
+    var td=Math.hypot(G.tx-G.sx,G.ty-G.sy);
+    if(td>8){
+      ctx.strokeStyle='rgba(230,217,184,.5)';ctx.lineWidth=2;ctx.setLineDash([6,8]);
+      ctx.beginPath();ctx.moveTo(G.sx,G.sy);ctx.lineTo(G.tx,G.ty);ctx.stroke();ctx.setLineDash([]);
+      var pr=14+4*Math.sin(ts*8);
+      ctx.strokeStyle='#e6d9b8';ctx.lineWidth=3;ctx.beginPath();ctx.arc(G.tx,G.ty,pr,0,TAU);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(G.tx-6,G.ty-4);ctx.lineTo(G.tx,G.ty+4);ctx.lineTo(G.tx+6,G.ty-4);ctx.stroke();
+    }
+  }
+  /* patrol cones */
+  G.pat.forEach(function(p){
+    if(!vis(p.x,p.y,PR))return;
+    var gr=ctx.createRadialGradient(p.x,p.y,10,p.x,p.y,PR),al=.1+.3*p.alert;
+    gr.addColorStop(0,'rgba(224,82,47,'+(al+.12)+')');gr.addColorStop(1,'rgba(224,82,47,'+(al*.25)+')');
+    ctx.fillStyle=gr;ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.arc(p.x,p.y,PR,p.ang-HALF,p.ang+HALF);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='rgba(224,82,47,'+(.35+.4*p.alert)+')';ctx.lineWidth=2;ctx.stroke();
+  });
+  /* stragglers */
+  G.strag.forEach(function(s){
+    if(!vis(s.x,s.y,40))return;
+    var pu=.5+.5*Math.sin(s.ph);
+    ctx.strokeStyle='rgba(230,217,184,'+(.25+.35*pu)+')';ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(s.x,s.y,14+4*pu,0,TAU);ctx.stroke();
+    drawMan(s.x,s.y,Math.sin(s.ph*.4)*1.2,pal.strag,pal.stragHelm,false,0);
+  });
+  /* patrol soldiers */
+  G.pat.forEach(function(p){
+    if(!vis(p.x,p.y,40))return;
+    var c=Math.cos(p.ang),sn=Math.sin(p.ang),off=[[0,0],[-14,-12],[-14,12]];
+    off.forEach(function(o){
+      drawMan(p.x+c*o[0]-sn*o[1],p.y+sn*o[0]+c*o[1],p.ang,'#59636a','#2e353a',true,ts*9+o[1]);
+    });
+  });
+  /* tanks and ships */
+  G.tanks.forEach(function(t){if(vis(t.x,t.y,60))drawTank(t);});
+  G.ships.forEach(function(sh){if(vis(sh.x,sh.y,100))drawShip(sh.x,sh.y+Math.sin(ts*1.2+sh.y)*3,sh.flash,false);});
+  /* player squad */
+  G.men.forEach(function(m,i){
+    if(!vis(m.x,m.y,20))return;
+    drawMan(m.x,m.y,m.a,i===0?pal.manLead:pal.man,i===0?pal.helmLead:pal.helm,m.run,m.ph);
+  });
+  /* tracers */
+  G.tracers.forEach(function(t){
+    ctx.strokeStyle='rgba(255,226,140,'+Math.min(1,t.t*10)+')';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(t.x1,t.y1);ctx.lineTo(t.x2,t.y2);ctx.stroke();
+  });
+  /* particles */
+  G.parts.forEach(function(p){
+    if(!vis(p.x,p.y,30))return;
+    var k=p.life/p.max;
+    ctx.globalAlpha=p.soft?k:clamp(k*1.3,0,1);
+    ctx.fillStyle=p.c;ctx.beginPath();ctx.arc(p.x,p.y,p.size*(1+p.grow*(1-k)),0,TAU);ctx.fill();
+  });
+  ctx.globalAlpha=1;
+  /* explosions */
+  G.shells.forEach(function(s){
+    if(!s.boom)return;
+    var k=s.bt/.45;
+    var gr=ctx.createRadialGradient(s.x,s.y,0,s.x,s.y,s.r*(.7+.7*k));
+    gr.addColorStop(0,'rgba(255,244,200,'+(1-k)+')');gr.addColorStop(.5,'rgba(244,160,60,'+(.8*(1-k))+')');gr.addColorStop(1,'rgba(90,60,40,0)');
+    ctx.fillStyle=gr;ctx.beginPath();ctx.arc(s.x,s.y,s.r*(.7+.7*k),0,TAU);ctx.fill();
+  });
+  /* floating text */
+  ctx.font=FONT;ctx.textAlign='center';
+  G.floats.forEach(function(f){ctx.globalAlpha=clamp(f.t,0,1);ctx.fillStyle=f.c;ctx.fillText(f.txt,f.x,f.y);});
+  ctx.globalAlpha=1;
+  /* planes on top */
+  G.lanes.forEach(function(ln){
+    if(!ln.go)return;
+    var px=ln.h?ln.p:ln.c,py=ln.h?ln.c:ln.p,ang=ln.h?(ln.dir>0?0:Math.PI):(ln.dir>0?Math.PI/2:-Math.PI/2);
+    drawPlane(px+26,py+38,ang,true);drawPlane(px,py,ang,false);
+  });
+  G.spits.forEach(function(s){drawPlane(s.x+22,s.y+40,0,true,true);drawPlane(s.x,s.y,0,false,true);});
+  /* off-screen boat arrows (screen space) */
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  if(pal.grade){ctx.fillStyle=pal.grade;ctx.fillRect(0,0,vw,vh);}
+  G.boats.forEach(function(b){
+    var sx=vw/2+(b.zx-CAMX)*zoom,sy=vh/2+(b.y-CAMY)*zoom;
+    if(sx>30&&sx<vw-30&&sy>30&&sy<vh-30)return;
+    var a=Math.atan2(sy-vh/2,sx-vw/2),c=Math.cos(a),s=Math.sin(a);
+    var t=Math.min((vw/2-36)/Math.max(Math.abs(c),.001),(vh/2-36)/Math.max(Math.abs(s),.001));
+    var ax=vw/2+c*t,ay=vh/2+s*t;
+    ctx.save();ctx.translate(ax,ay);ctx.rotate(a);
+    ctx.fillStyle='#8cc06b';ctx.beginPath();ctx.moveTo(14,0);ctx.lineTo(-8,-11);ctx.lineTo(-8,11);ctx.closePath();ctx.fill();
+    ctx.restore();
+    ctx.fillStyle='#e6d9b8';ctx.font='700 12px "Stardos Stencil",Impact,sans-serif';ctx.textAlign='center';
+    var dist=Math.round(Math.hypot(b.zx-G.sx,b.y-G.sy));
+    ctx.fillText((b.civil?'SIPIL ':'KAPAL ')+dist+' m',clamp(ax-c*34,50,vw-50),clamp(ay-s*34,50,vh-50));
+  });
+}
+
+/* ---------- flow ---------- */
+function loadBest(){var v=0;try{v=parseInt(localStorage.getItem('dunkirk-best'),10)||0;}catch(e){}return v;}
+function saveBest(v){try{localStorage.setItem('dunkirk-best',String(v));}catch(e){}}
+function setPal(name){
+  if(!PALS[name])name='film';
+  pal=PALS[name];stage.setAttribute('data-pal',name);
+  $('pal').textContent='WARNA: '+(name==='film'?'BIRU FILM':'SEPIA 1940');
+  buildBg();
+  try{localStorage.setItem('dunkirk-pal',name);}catch(e){}
+}
+function loadPal(){var v='film';try{v=localStorage.getItem('dunkirk-pal')||'film';}catch(e){}return v;}
+function start(){
+  sfxInit();newGame();state='play';
+  $('ov').hidden=true;$('hint').className='';
+  hud();
+  toast('OPERASI DYNAMO DIMULAI: REKRUT PRAJURIT, CARI KAPAL','good');
+}
+function gameOver(){
+  state='over';
+  var best=Math.max(loadBest(),G.saved);saveBest(best);
+  var rows=board(),rank=rows.findIndex(function(r){return r.me;})+1;
+  $('rsaved').textContent=String(G.saved);
+  $('rmen').textContent=(G.saved*1000).toLocaleString('id-ID');
+  $('rtime').textContent=fmtTime(G.t);
+  $('rrank').textContent='#'+rank+' dari '+rows.length;
+  $('rbest').textContent=String(best);
+  lastRes={saved:G.saved,time:fmtTime(G.t),rank:'#'+rank+' dari '+rows.length};
+  say('');
+  $('menu').hidden=true;$('end').hidden=false;$('ov').hidden=false;
+  try{$('again').focus();}catch(e){}
+}
+/* ---------- bagikan skor ---------- */
+var lastRes={saved:0,time:'00:00',rank:'-'};
+function shareText(){
+  var url=SHARE_URL||(location.href||'');
+  return 'Aku menyelamatkan '+lastRes.saved+' prajurit ('+(lastRes.saved*1000).toLocaleString('id-ID')+' orang) di DUNKIRK 1940: Evakuasi, bertahan '+lastRes.time+'. Bisa lebih dari ini? '+url;
+}
+function drawCard(){
+  var c=document.createElement('canvas');c.width=1080;c.height=1350;
+  var g=c.getContext('2d'),film=pal===PALS.film;
+  var sea=g.createLinearGradient(0,0,0,1350);
+  sea.addColorStop(0,film?'#1d3342':'#223a43');sea.addColorStop(.55,film?'#48697b':'#3c5e66');sea.addColorStop(1,film?'#b3b4aa':'#c4b189');
+  g.fillStyle=sea;g.fillRect(0,0,1080,1350);
+  g.fillStyle='rgba(0,0,0,.35)';g.fillRect(0,0,1080,1350);
+  g.fillStyle='#e6d9b8';g.fillRect(70,90,940,1170);
+  g.fillStyle='#1c1912';g.fillRect(70,90,940,58);
+  g.fillStyle='#e6d9b8';g.font='700 26px "Stardos Stencil",Impact,sans-serif';g.textAlign='left';
+  g.fillText('LAPORAN PERTEMPURAN  ·  26 MEI 1940',96,129);
+  g.fillStyle='#1c1912';g.font='700 150px "Stardos Stencil",Impact,sans-serif';g.fillText('DUNKIRK',96,320);
+  g.fillStyle='#e0522f';g.font='700 44px "Stardos Stencil",Impact,sans-serif';g.fillText('1940 : EVAKUASI',100,390);
+  g.fillStyle='#1c1912';g.font='700 300px "Stardos Stencil",Impact,sans-serif';g.fillText(String(lastRes.saved),90,700);
+  g.font='700 40px "Special Elite","Courier New",monospace';
+  g.fillText('prajurit diselamatkan',100,770);
+  g.fillText('setara '+(lastRes.saved*1000).toLocaleString('id-ID')+' orang',100,830);
+  g.fillStyle='#5b5240';g.font='34px "Special Elite","Courier New",monospace';
+  g.fillText('Bertahan '+lastRes.time+'   ·   Peringkat '+lastRes.rank,100,930);
+  g.fillStyle='#1c1912';g.fillRect(96,1010,888,4);
+  g.fillStyle='#1c1912';g.font='36px "Special Elite","Courier New",monospace';
+  g.fillText('Bisa lebih dari ini? Coba selamatkan',100,1080);
+  g.fillText('pasukanmu sendiri.',100,1130);
+  var u=(SHARE_URL||'').replace(/^https?:\/\//,'');
+  if(u){g.fillStyle='#e0522f';g.font='700 38px "Stardos Stencil",Impact,sans-serif';g.fillText(u,100,1210);}
+  return c;
+}
+function cardBlob(cb){try{drawCard().toBlob(function(b){cb(b);},'image/png');}catch(e){cb(null);}}
+function say(t){$('shmsg').textContent=t;}
+function copyText(t,done){
+  function legacy(){
+    try{var ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();var ok=document.execCommand('copy');document.body.removeChild(ta);done(ok);}catch(e){done(false);}
+  }
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){done(true);},legacy);}else legacy();
+}
+function shareScore(){
+  var txt=shareText();
+  cardBlob(function(blob){
+    var file=null;
+    try{if(blob)file=new File([blob],'dunkirk-skor.png',{type:'image/png'});}catch(e){}
+    var data={title:'DUNKIRK 1940: Evakuasi',text:txt};
+    if(file&&navigator.canShare&&navigator.canShare({files:[file]}))data.files=[file];
+    if(navigator.share){
+      navigator.share(data).then(function(){say('Terkirim.');},function(err){
+        if(err&&err.name==='AbortError')return;
+        copyText(txt,function(ok){say(ok?'Teks skor disalin. Tempel di chat atau media sosialmu.':'Gagal membagikan. Salin manual: '+txt);});
+      });
+    }else{
+      copyText(txt,function(ok){say(ok?'Teks skor disalin. Tempel di chat atau media sosialmu.':'Gagal menyalin. Salin manual: '+txt);});
+    }
+  });
+}
+function downloadCard(){
+  cardBlob(function(blob){
+    if(!blob){say('Kartu gagal dibuat di browser ini.');return;}
+    try{
+      var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='dunkirk-skor.png';
+      document.body.appendChild(a);a.click();document.body.removeChild(a);
+      setTimeout(function(){URL.revokeObjectURL(a.href);},2000);
+      say('Kartu diunduh. Jika tidak muncul, tekan lama gambar atau gunakan Bagikan Skor.');
+    }catch(e){say('Unduhan tidak didukung di sini. Pakai Bagikan Skor.');}
+  });
+}
+function setTarget(e){
+  var r=cv.getBoundingClientRect();
+  var x=G.camx,y=G.camy;
+  x=CAMX+(e.clientX-r.left-vw/2)/zoom;y=CAMY+(e.clientY-r.top-vh/2)/zoom;
+  G.tx=clamp(x,20,SHORE+25);G.ty=clamp(y,20,H-20);
+  $('hint').className='off';
+}
+cv.addEventListener('pointerdown',function(e){
+  if(state!=='play')return;
+  down=true;try{cv.setPointerCapture(e.pointerId);}catch(err){}
+  setTarget(e);e.preventDefault();
+});
+cv.addEventListener('pointermove',function(e){if(down&&state==='play')setTarget(e);});
+cv.addEventListener('pointerup',function(){down=false;});
+cv.addEventListener('pointercancel',function(){down=false;});
+window.addEventListener('keydown',function(e){
+  var k=e.key.length===1?e.key.toLowerCase():e.key;
+  if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','a','d','w','s'].indexOf(k)>=0){
+    if(state==='play'){keys[k]=true;$('hint').className='off';if(k.indexOf('Arrow')===0)e.preventDefault();}
+  }
+});
+window.addEventListener('keyup',function(e){var k=e.key.length===1?e.key.toLowerCase():e.key;delete keys[k];});
+window.addEventListener('blur',function(){keys={};});
+$('go').addEventListener('click',start);
+$('again').addEventListener('click',start);
+$('share').addEventListener('click',shareScore);
+$('dl').addEventListener('click',downloadCard);
+window.addEventListener('keydown',function(e){
+  if(e.key==='Enter'&&state==='over'&&document.activeElement&&document.activeElement.tagName!=='BUTTON'){start();}
+});
+$('mute').addEventListener('click',function(){muted=!muted;this.textContent='SUARA: '+(muted?'OFF':'ON');});
+$('pal').addEventListener('click',function(){setPal(pal===PALS.film?'sepia':'film');});
+
+function resize(){
+  var r=stage.getBoundingClientRect();
+  vw=Math.max(200,r.width);vh=Math.max(200,r.height);
+  dpr=Math.min(2,window.devicePixelRatio||1);
+  cv.width=Math.round(vw*dpr);cv.height=Math.round(vh*dpr);
+  zoom=clamp(Math.sqrt(vw*vh)/800,.6,1.5);
+}
+if(window.ResizeObserver)new ResizeObserver(resize).observe(stage);
+window.addEventListener('resize',resize);
+resize();
+
+setPal(loadPal());newGame();
+var bestNow=loadBest();
+$('best').textContent=bestNow?('Rekor pribadi: '+bestNow+' prajurit selamat ('+(bestNow*1000).toLocaleString('id-ID')+' orang).'):'Belum ada rekor. Selamatkan sebanyak mungkin.';
+function frame(ts){
+  var dt=Math.min(.05,(ts-last)/1000||0);last=ts;
+  if(state==='play'){update(dt);G.hudT-=dt;if(G.hudT<=0){G.hudT=.25;hud();}}
+  else{updateFx(dt);G.camx=700+Math.sin(ts/6000)*160;G.camy=H/2+Math.cos(ts/7000)*120;}
+  render(ts/1000);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
